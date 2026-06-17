@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.1
+Galaxy Nick Checker v2.2
 Поиск свободных однословных ников на galaxy.mobstudio.ru
 С отображением даты последнего онлайна
 Автоматически создает .env при первом запуске
@@ -20,24 +20,18 @@ from dotenv import load_dotenv
 def get_env_path():
     """Возвращает путь к .env файлу (рядом с EXE или в папке скрипта)"""
     if getattr(sys, 'frozen', False):
-        # Запущено как EXE
         base_path = Path(sys.executable).parent
     else:
-        # Запущено как скрипт
         base_path = Path(__file__).parent
     return base_path / '.env'
 
 def ensure_env_file():
-    """
-    Проверяет наличие .env и создает его при отсутствии.
-    Возвращает True, если файл существует или был создан.
-    """
+    """Проверяет наличие .env и создает его при отсутствии"""
     env_path = get_env_path()
     
     if env_path.exists():
         return True
     
-    # Файла нет — создаем
     print("=" * 60)
     print("🔧 Файл .env не найден. Создаю новый...")
     print("=" * 60)
@@ -62,7 +56,6 @@ def ensure_env_file():
         
         input("Нажмите Enter, когда заполните файл .env...")
         
-        # Проверяем, заполнил ли пользователь
         load_dotenv(env_path)
         test_id = os.getenv("GALAXY_USER_ID")
         test_pass = os.getenv("GALAXY_PASSWORD")
@@ -73,7 +66,7 @@ def ensure_env_file():
             print("   GALAXY_USER_ID=ваш_айди")
             print("   GALAXY_PASSWORD=ваш_пароль")
             input("\nНажмите Enter, чтобы попробовать снова...")
-            return ensure_env_file()  # Рекурсивно просим заполнить
+            return ensure_env_file()
         
         return True
         
@@ -142,31 +135,44 @@ Content-Disposition: form-data; name="ajax"
             resp.raise_for_status()
             result = resp.json()
             search_result = result.get("searchResult", {})
+            
+            # Поле hasFullMatch говорит, есть ли точное совпадение
+            # Но оно чувствительно к регистру! Используем свою проверку
             has_match = search_result.get("hasFullMatch", False)
             
-            self.checked += 1
-            if not has_match:
-                self.found += 1
+            # Дополнительная проверка через список найденных пользователей
+            initial_match = search_result.get("initialMatchList", [])
             
+            # Проверяем, есть ли точное совпадение без учета регистра
+            exact_match_found = False
             user_info = None
-            if has_match:
-                initial_match = search_result.get("initialMatchList", [])
-                for user in initial_match:
-                    user_nick = user.get("userNickData", {}).get("nick", "").lower()
-                    if user_nick == nick.lower():
-                        user_info = {
-                            "user_id": user.get("userId"),
-                            "is_online": user.get("isOnline", False),
-                            "last_online": user.get("lastOnline", "неизвестно"),
-                            "is_male": user.get("isMale", True),
-                            "user_pic": user.get("userPic", "")
-                        }
-                        break
+            
+            for user in initial_match:
+                user_nick = user.get("userNickData", {}).get("nick", "")
+                # Сравниваем без учета регистра
+                if user_nick.lower() == nick.lower():
+                    exact_match_found = True
+                    user_info = {
+                        "user_id": user.get("userId"),
+                        "is_online": user.get("isOnline", False),
+                        "last_online": user.get("lastOnline", "неизвестно"),
+                        "is_male": user.get("isMale", True),
+                        "user_pic": user.get("userPic", ""),
+                        "actual_nick": user_nick  # Сохраняем реальный ник
+                    }
+                    break
+            
+            # Если точное совпадение найдено - ник занят
+            is_taken = exact_match_found
+            
+            self.checked += 1
+            if not is_taken:
+                self.found += 1
             
             return {
                 "nick": nick,
-                "available": not has_match,
-                "taken": has_match,
+                "available": not is_taken,
+                "taken": is_taken,
                 "user_info": user_info
             }
         except Exception as e:
@@ -269,7 +275,9 @@ class NickGenerator:
         return list(set([base] + words))
     
     def cases(self, word: str) -> List[str]:
-        return [word, word.capitalize(), word.upper(), word.lower()]
+        """Возвращает разные варианты написания"""
+        # Проверяем только строчный вариант, так как регистр не важен
+        return [word.lower()]
     
     def search(self, base: str, lang: str = "both", delay: float = 0.3) -> List[str]:
         print(f"🔍 Поиск: '{base}'")
@@ -283,27 +291,31 @@ class NickGenerator:
         for word in words[:20]:
             if not (3 <= len(word) <= 15):
                 continue
-            for nick in set(self.cases(word)):
-                result = self.checker.check(nick, delay)
-                if result.get("available"):
-                    found.append(nick)
-                    print(f"✅ {nick} — СВОБОДЕН!")
+            
+            # Проверяем только строчный вариант
+            nick = word.lower()
+            result = self.checker.check(nick, delay)
+            
+            if result.get("available"):
+                found.append(nick)
+                print(f"✅ {nick} — СВОБОДЕН!")
+            else:
+                user_info = result.get("user_info")
+                if user_info:
+                    status = "🟢 Онлайн" if user_info.get("is_online") else "🔴 Офлайн"
+                    last_online = user_info.get("last_online", "неизвестно")
+                    gender = "♂️" if user_info.get("is_male") else "♀️"
+                    actual_nick = user_info.get("actual_nick", nick)
+                    print(f"❌ {actual_nick} — ЗАНЯТ {gender} {status}, последний раз: {last_online}")
+                    self.taken_with_info.append({
+                        "nick": actual_nick,
+                        "user_id": user_info.get("user_id"),
+                        "last_online": last_online,
+                        "is_online": user_info.get("is_online"),
+                        "gender": "Мужской" if user_info.get("is_male") else "Женский"
+                    })
                 else:
-                    user_info = result.get("user_info")
-                    if user_info:
-                        status = "🟢 Онлайн" if user_info.get("is_online") else "🔴 Офлайн"
-                        last_online = user_info.get("last_online", "неизвестно")
-                        gender = "♂️" if user_info.get("is_male") else "♀️"
-                        print(f"❌ {nick} — ЗАНЯТ {gender} {status}, последний раз: {last_online}")
-                        self.taken_with_info.append({
-                            "nick": nick,
-                            "user_id": user_info.get("user_id"),
-                            "last_online": last_online,
-                            "is_online": user_info.get("is_online"),
-                            "gender": "Мужской" if user_info.get("is_male") else "Женский"
-                        })
-                    else:
-                        print(f"❌ {nick} — ЗАНЯТ")
+                    print(f"❌ {nick} — ЗАНЯТ")
         
         print(f"🎯 Найдено свободных: {len(found)}")
         if self.taken_with_info:
@@ -318,8 +330,9 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.1                        ║
+║     🚀 GALAXY NICK CHECKER v2.2                        ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
+║     Регистр не имеет значения                          ║
 ╚══════════════════════════════════════════════════════════╝
     """)
 
@@ -328,7 +341,6 @@ def main():
     if not ensure_env_file():
         return
     
-    # Загружаем .env
     env_path = get_env_path()
     load_dotenv(env_path)
     
