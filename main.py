@@ -3,7 +3,7 @@
 Galaxy Nick Checker v2.1
 Поиск свободных однословных ников на galaxy.mobstudio.ru
 С отображением даты последнего онлайна
-Работает как скрипт и как EXE
+Автоматически создает .env при первом запуске
 """
 
 import hashlib
@@ -16,7 +16,7 @@ from typing import Dict, List
 from pathlib import Path
 from dotenv import load_dotenv
 
-# ==================== ПОИСК .ENV ====================
+# ==================== РАБОТА С .ENV ====================
 def get_env_path():
     """Возвращает путь к .env файлу (рядом с EXE или в папке скрипта)"""
     if getattr(sys, 'frozen', False):
@@ -25,25 +25,62 @@ def get_env_path():
     else:
         # Запущено как скрипт
         base_path = Path(__file__).parent
-    
     return base_path / '.env'
 
-def create_env_if_not_exists():
-    """Создает .env файл если его нет"""
+def ensure_env_file():
+    """
+    Проверяет наличие .env и создает его при отсутствии.
+    Возвращает True, если файл существует или был создан.
+    """
     env_path = get_env_path()
-    if not env_path.exists():
-        print("⚙️ Файл .env не найден. Создаю новый...")
+    
+    if env_path.exists():
+        return True
+    
+    # Файла нет — создаем
+    print("=" * 60)
+    print("🔧 Файл .env не найден. Создаю новый...")
+    print("=" * 60)
+    
+    try:
         with open(env_path, 'w', encoding='utf-8') as f:
-            f.write("# Galaxy Nick Checker - настройки\n")
+            f.write("# Galaxy Nick Checker - Настройки\n")
             f.write("# Получите свой userID через F12 -> Network на сайте galaxy.mobstudio.ru\n")
+            f.write("# Или найдите параметр userID в любом запросе\n\n")
             f.write("GALAXY_USER_ID=\n")
             f.write("GALAXY_PASSWORD=\n")
-        print(f"✅ Создан файл .env в: {env_path}")
-        print("📝 Откройте его и впишите свои данные:")
+        
+        print(f"✅ Файл создан: {env_path}")
+        print("\n📝 Теперь откройте этот файл Блокнотом и впишите свои данные:")
         print("   GALAXY_USER_ID=ваш_айди")
         print("   GALAXY_PASSWORD=ваш_пароль")
-        return False
-    return True
+        print("\n💡 Подсказка:")
+        print("   - userID — ваше ID в игре (число)")
+        print("   - password — ваш пароль от аккаунта Galaxy")
+        print("\n⚠️ ВНИМАНИЕ: Не показывайте этот файл никому!")
+        print("=" * 60)
+        
+        input("Нажмите Enter, когда заполните файл .env...")
+        
+        # Проверяем, заполнил ли пользователь
+        load_dotenv(env_path)
+        test_id = os.getenv("GALAXY_USER_ID")
+        test_pass = os.getenv("GALAXY_PASSWORD")
+        
+        if not test_id or not test_pass:
+            print("\n❌ Вы не заполнили данные в .env!")
+            print("   Откройте файл и впишите:")
+            print("   GALAXY_USER_ID=ваш_айди")
+            print("   GALAXY_PASSWORD=ваш_пароль")
+            input("\nНажмите Enter, чтобы попробовать снова...")
+            return ensure_env_file()  # Рекурсивно просим заполнить
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка при создании .env: {e}")
+        input("\nНажмите Enter для выхода...")
+        sys.exit(1)
 
 # ==================== ЧЕКЕР ====================
 class GalaxyNickChecker:
@@ -287,19 +324,12 @@ def banner():
     """)
 
 def main():
-    # Проверяем наличие .env
+    # ===== АВТОМАТИЧЕСКОЕ СОЗДАНИЕ .env =====
+    if not ensure_env_file():
+        return
+    
+    # Загружаем .env
     env_path = get_env_path()
-    
-    if not env_path.exists():
-        print("❌ Файл .env не найден!")
-        print(f"   Ожидается в: {env_path}")
-        print("\n📝 Создайте файл .env с вашими данными:")
-        print("   GALAXY_USER_ID=ваш_айди")
-        print("   GALAXY_PASSWORD=ваш_пароль")
-        print("\n💡 Получите свой userID через F12 → Network на сайте galaxy.mobstudio.ru")
-        input("\nНажмите Enter для выхода...")
-        sys.exit(1)
-    
     load_dotenv(env_path)
     
     user_id = os.getenv("GALAXY_USER_ID")
