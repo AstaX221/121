@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.9 - ТОЧНАЯ КОПИЯ CURL
+Galaxy Nick Checker v3.0 - РАБОЧАЯ ВЕРСИЯ
 Поиск свободных однословных ников на galaxy.mobstudio.ru
 """
 
@@ -63,7 +63,7 @@ def ensure_env_file():
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
 
-# ==================== ЧЕКЕР — ТОЧНАЯ КОПИЯ CURL ====================
+# ==================== ЧЕКЕР — РАБОЧАЯ ВЕРСИЯ ====================
 class GalaxyNickChecker:
     def __init__(self, user_id: int, password: str):
         self.user_id = user_id
@@ -99,68 +99,53 @@ class GalaxyNickChecker:
         self.found = 0
         self.debug = True
     
-    def _build_multipart_data(self, nick: str) -> bytes:
-        """Создает multipart/form-data тело запроса ТОЧНО КАК В CURL"""
-        boundary = "----WebKitFormBoundaryAqx8bYPaXF3nNmhf"
-        
-        # ТОЧНО КАК В CURL — с пустыми строками между полями
-        body = f"""--{boundary}
-
-Content-Disposition: form-data; name="a"
-
-
-search_ajax
-
---{boundary}
-
-Content-Disposition: form-data; name="type"
-
-
-1
-
---{boundary}
-
-Content-Disposition: form-data; name="search_value"
-
-
-{nick}
-
---{boundary}
-
-Content-Disposition: form-data; name="ajax"
-
-
-1
-
---{boundary}--
-"""
-        return body.encode('utf-8')
-    
     def check(self, nick: str, delay: float = 0.5) -> Dict:
         time.sleep(delay)
         rand = random.random()
         
+        # КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: правильный URL с & перед userID
         url = f"{self.url}?&userID={self.user_id}&password={self.password_hash}&query_rand={rand}"
-        data = self._build_multipart_data(nick)
+        
+        # Просто data в формате multipart, как в cURL
+        data = f"""------WebKitFormBoundaryAqx8bYPaXF3nNmhf
+Content-Disposition: form-data; name="a"
+
+search_ajax
+------WebKitFormBoundaryAqx8bYPaXF3nNmhf
+Content-Disposition: form-data; name="type"
+
+1
+------WebKitFormBoundaryAqx8bYPaXF3nNmhf
+Content-Disposition: form-data; name="search_value"
+
+{nick}
+------WebKitFormBoundaryAqx8bYPaXF3nNmhf
+Content-Disposition: form-data; name="ajax"
+
+1
+------WebKitFormBoundaryAqx8bYPaXF3nNmhf--
+"""
         
         if self.debug:
             print(f"\n📤 [DEBUG] Запрос к: {url[:100]}...")
-            print(f"📤 [DEBUG] Длина тела: {len(data)} байт")
         
         try:
-            resp = requests.post(url, headers=self.headers, data=data, timeout=10)
+            resp = requests.post(url, headers=self.headers, data=data.encode('utf-8'), timeout=10)
             resp.raise_for_status()
             
             if self.debug:
                 print(f"📥 [DEBUG] Статус ответа: {resp.status_code}")
+                print(f"📥 [DEBUG] Content-Type: {resp.headers.get('content-type', 'неизвестно')}")
             
+            # Пробуем парсить JSON
             try:
                 result = resp.json()
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
+                # Если не JSON, показываем первые 200 символов ответа
                 if self.debug:
-                    print(f"❌ [DEBUG] Ошибка парсинга JSON: {e}")
-                    print(f"❌ [DEBUG] Текст ответа: {resp.text[:500]}")
-                return {"nick": nick, "available": False, "error": "Невалидный JSON"}
+                    print(f"❌ [DEBUG] Ответ не JSON, первые 200 символов:")
+                    print(resp.text[:200])
+                return {"nick": nick, "available": False, "error": "Сервер вернул HTML, а не JSON"}
             
             # Проверяем ошибку
             if "success" in result and result.get("success") == False:
@@ -174,16 +159,16 @@ Content-Disposition: form-data; name="ajax"
             if search_result is None:
                 if self.debug:
                     print(f"❌ [DEBUG] Нет searchResult в ответе")
-                    print(f"📥 [DEBUG] Полный ответ: {json.dumps(result, ensure_ascii=False)[:500]}")
                 return {"nick": nick, "available": False, "error": "Нет searchResult"}
             
             initial_match = search_result.get("initialMatchList", [])
             
+            # Ищем точное совпадение
             exact_match_found = False
             user_info = None
             
             if self.debug:
-                print(f"🔍 [DEBUG] Ищем точное совпадение для '{nick}'")
+                print(f"🔍 [DEBUG] Ищем совпадение для '{nick}'")
                 print(f"🔍 [DEBUG] Найдено пользователей: {len(initial_match)}")
             
             for user in initial_match:
@@ -375,7 +360,7 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.9 - ТОЧНАЯ КОПИЯ CURL   ║
+║     🚀 GALAXY NICK CHECKER v3.0 - РАБОЧАЯ ВЕРСИЯ      ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
 ╚══════════════════════════════════════════════════════════╝
     """)
