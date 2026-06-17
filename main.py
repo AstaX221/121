@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.7 - РАБОЧАЯ ВЕРСИЯ
+Galaxy Nick Checker v2.9 - ТОЧНАЯ КОПИЯ CURL
 Поиск свободных однословных ников на galaxy.mobstudio.ru
-ТОЧНАЯ КОПИЯ РАБОЧЕГО ЗАПРОСА
 """
 
 import hashlib
@@ -64,7 +63,7 @@ def ensure_env_file():
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
 
-# ==================== ЧЕКЕР — ТОЧНАЯ КОПИЯ ====================
+# ==================== ЧЕКЕР — ТОЧНАЯ КОПИЯ CURL ====================
 class GalaxyNickChecker:
     def __init__(self, user_id: int, password: str):
         self.user_id = user_id
@@ -72,11 +71,14 @@ class GalaxyNickChecker:
         self.url = "https://galaxy.mobstudio.ru/services/"
         self.headers = {
             "accept": "*/*",
-            "accept-encoding": "gzip, deflate, br, zstd",
             "accept-language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
             "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryAqx8bYPaXF3nNmhf",
             "origin": "https://galaxy.mobstudio.ru",
+            "priority": "u=1, i",
             "referer": "https://galaxy.mobstudio.ru/web/assets/index.html?20&page_action=search_index&p=25",
+            "sec-ch-ua": '"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
@@ -84,53 +86,66 @@ class GalaxyNickChecker:
             "x-galaxy-client-ver": "9.5",
             "x-galaxy-kbv": "352",
             "x-galaxy-lng": "ru",
-            "x-galaxy-platform": "web"
+            "x-galaxy-model": "chrome 149.0.0.0",
+            "x-galaxy-orientation": "portrait",
+            "x-galaxy-os-ver": "1",
+            "x-galaxy-platform": "web",
+            "x-galaxy-scr-dpi": "1",
+            "x-galaxy-scr-h": "1391",
+            "x-galaxy-scr-w": "700",
+            "x-galaxy-user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
         }
         self.checked = 0
         self.found = 0
         self.debug = True
     
     def _build_multipart_data(self, nick: str) -> bytes:
-        """Создает multipart/form-data тело запроса (ТОЧНО КАК В БРАУЗЕРЕ)"""
+        """Создает multipart/form-data тело запроса ТОЧНО КАК В CURL"""
         boundary = "----WebKitFormBoundaryAqx8bYPaXF3nNmhf"
         
-        # Формируем части без лишних пробелов и с правильными \r\n
-        parts = [
-            f'--{boundary}',
-            'Content-Disposition: form-data; name="a"',
-            '',
-            'search_ajax',
-            f'--{boundary}',
-            'Content-Disposition: form-data; name="type"',
-            '',
-            '1',
-            f'--{boundary}',
-            'Content-Disposition: form-data; name="search_value"',
-            '',
-            nick,
-            f'--{boundary}',
-            'Content-Disposition: form-data; name="ajax"',
-            '',
-            '1',
-            f'--{boundary}--',
-        ]
-        
-        # Соединяем с \r\n и преобразуем в байты
-        body = '\r\n'.join(parts) + '\r\n'
+        # ТОЧНО КАК В CURL — с пустыми строками между полями
+        body = f"""--{boundary}
+
+Content-Disposition: form-data; name="a"
+
+
+search_ajax
+
+--{boundary}
+
+Content-Disposition: form-data; name="type"
+
+
+1
+
+--{boundary}
+
+Content-Disposition: form-data; name="search_value"
+
+
+{nick}
+
+--{boundary}
+
+Content-Disposition: form-data; name="ajax"
+
+
+1
+
+--{boundary}--
+"""
         return body.encode('utf-8')
     
     def check(self, nick: str, delay: float = 0.5) -> Dict:
         time.sleep(delay)
         rand = random.random()
         
-        # URL с параметрами
         url = f"{self.url}?&userID={self.user_id}&password={self.password_hash}&query_rand={rand}"
-        
-        # Тело запроса
         data = self._build_multipart_data(nick)
         
         if self.debug:
             print(f"\n📤 [DEBUG] Запрос к: {url[:100]}...")
+            print(f"📤 [DEBUG] Длина тела: {len(data)} байт")
         
         try:
             resp = requests.post(url, headers=self.headers, data=data, timeout=10)
@@ -155,16 +170,15 @@ class GalaxyNickChecker:
                     print(f"❌ [DEBUG] Ошибка сервера: {error_msg}")
                 return {"nick": nick, "available": False, "error": error_msg}
             
-            # Проверяем наличие searchResult
             search_result = result.get("searchResult")
             if search_result is None:
                 if self.debug:
                     print(f"❌ [DEBUG] Нет searchResult в ответе")
+                    print(f"📥 [DEBUG] Полный ответ: {json.dumps(result, ensure_ascii=False)[:500]}")
                 return {"nick": nick, "available": False, "error": "Нет searchResult"}
             
             initial_match = search_result.get("initialMatchList", [])
             
-            # Ищем точное совпадение без учета регистра
             exact_match_found = False
             user_info = None
             
@@ -361,7 +375,7 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.7 - РАБОЧАЯ ВЕРСИЯ      ║
+║     🚀 GALAXY NICK CHECKER v2.9 - ТОЧНАЯ КОПИЯ CURL   ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
 ╚══════════════════════════════════════════════════════════╝
     """)
