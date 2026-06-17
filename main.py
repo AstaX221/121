@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.2
+Galaxy Nick Checker v2.3 - С ОТЛАДКОЙ
 Поиск свободных однословных ников на galaxy.mobstudio.ru
-С отображением даты последнего онлайна
-Автоматически создает .env при первом запуске
+ВЫВОДИТ СЫРЫЕ ОТВЕТЫ СЕРВЕРА ДЛЯ ДИАГНОСТИКИ
 """
 
 import hashlib
@@ -12,13 +11,13 @@ import requests
 import time
 import os
 import sys
+import json
 from typing import Dict, List
 from pathlib import Path
 from dotenv import load_dotenv
 
 # ==================== РАБОТА С .ENV ====================
 def get_env_path():
-    """Возвращает путь к .env файлу (рядом с EXE или в папке скрипта)"""
     if getattr(sys, 'frozen', False):
         base_path = Path(sys.executable).parent
     else:
@@ -26,9 +25,7 @@ def get_env_path():
     return base_path / '.env'
 
 def ensure_env_file():
-    """Проверяет наличие .env и создает его при отсутствии"""
     env_path = get_env_path()
-    
     if env_path.exists():
         return True
     
@@ -39,19 +36,14 @@ def ensure_env_file():
     try:
         with open(env_path, 'w', encoding='utf-8') as f:
             f.write("# Galaxy Nick Checker - Настройки\n")
-            f.write("# Получите свой userID через F12 -> Network на сайте galaxy.mobstudio.ru\n")
-            f.write("# Или найдите параметр userID в любом запросе\n\n")
+            f.write("# Получите свой userID через F12 -> Network на сайте galaxy.mobstudio.ru\n\n")
             f.write("GALAXY_USER_ID=\n")
             f.write("GALAXY_PASSWORD=\n")
         
         print(f"✅ Файл создан: {env_path}")
-        print("\n📝 Теперь откройте этот файл Блокнотом и впишите свои данные:")
+        print("\n📝 Откройте файл и впишите свои данные:")
         print("   GALAXY_USER_ID=ваш_айди")
         print("   GALAXY_PASSWORD=ваш_пароль")
-        print("\n💡 Подсказка:")
-        print("   - userID — ваше ID в игре (число)")
-        print("   - password — ваш пароль от аккаунта Galaxy")
-        print("\n⚠️ ВНИМАНИЕ: Не показывайте этот файл никому!")
         print("=" * 60)
         
         input("Нажмите Enter, когда заполните файл .env...")
@@ -62,9 +54,6 @@ def ensure_env_file():
         
         if not test_id or not test_pass:
             print("\n❌ Вы не заполнили данные в .env!")
-            print("   Откройте файл и впишите:")
-            print("   GALAXY_USER_ID=ваш_айди")
-            print("   GALAXY_PASSWORD=ваш_пароль")
             input("\nНажмите Enter, чтобы попробовать снова...")
             return ensure_env_file()
         
@@ -75,7 +64,7 @@ def ensure_env_file():
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
 
-# ==================== ЧЕКЕР ====================
+# ==================== ЧЕКЕР С ОТЛАДКОЙ ====================
 class GalaxyNickChecker:
     def __init__(self, user_id: int, password: str):
         self.user_id = user_id
@@ -92,6 +81,7 @@ class GalaxyNickChecker:
         }
         self.checked = 0
         self.found = 0
+        self.debug = True  # Включаем отладку
     
     def _build_form_data(self, nick: str, rand: float) -> str:
         return f"""------WebKitFormBoundary9B72nKAEd6UycZAA
@@ -130,26 +120,63 @@ Content-Disposition: form-data; name="ajax"
         rand = random.random()
         url = f"{self.url}?&userID={self.user_id}&password={self.password_hash}&query_rand={rand}"
         
+        # ОТЛАДКА: показываем URL
+        if self.debug:
+            print(f"\n📤 [DEBUG] Запрос к: {url[:80]}...")
+        
         try:
             resp = requests.post(url, headers=self.headers, data=self._build_form_data(nick, rand), timeout=10)
             resp.raise_for_status()
-            result = resp.json()
-            search_result = result.get("searchResult", {})
             
-            # Поле hasFullMatch говорит, есть ли точное совпадение
-            # Но оно чувствительно к регистру! Используем свою проверку
+            # ОТЛАДКА: показываем статус ответа
+            if self.debug:
+                print(f"📥 [DEBUG] Статус ответа: {resp.status_code}")
+                print(f"📥 [DEBUG] Content-Type: {resp.headers.get('content-type', 'неизвестно')}")
+            
+            # Пытаемся получить JSON
+            try:
+                result = resp.json()
+            except json.JSONDecodeError as e:
+                if self.debug:
+                    print(f"❌ [DEBUG] Ошибка парсинга JSON: {e}")
+                    print(f"❌ [DEBUG] Текст ответа: {resp.text[:500]}")
+                return {"nick": nick, "available": False, "error": "Невалидный JSON"}
+            
+            # ОТЛАДКА: показываем структуру ответа
+            if self.debug:
+                print(f"📥 [DEBUG] Ключи в ответе: {list(result.keys())}")
+                if "searchResult" in result:
+                    sr = result["searchResult"]
+                    print(f"📥 [DEBUG] searchResult содержит: {list(sr.keys())}")
+                    print(f"📥 [DEBUG] hasFullMatch: {sr.get('hasFullMatch', 'НЕТ')}")
+                    print(f"📥 [DEBUG] initialMatchCount: {sr.get('initialMatchCount', 0)}")
+                    
+                    # Показываем первый найденный ник, если есть
+                    if sr.get("initialMatchList"):
+                        first_user = sr["initialMatchList"][0]
+                        first_nick = first_user.get("userNickData", {}).get("nick", "НЕТ НИКА")
+                        print(f"📥 [DEBUG] Первый найденный ник: {first_nick}")
+                
+                print(f"📥 [DEBUG] Полный ответ (сокращенно): {json.dumps(result, ensure_ascii=False)[:300]}...")
+            
+            search_result = result.get("searchResult", {})
             has_match = search_result.get("hasFullMatch", False)
             
-            # Дополнительная проверка через список найденных пользователей
             initial_match = search_result.get("initialMatchList", [])
             
-            # Проверяем, есть ли точное совпадение без учета регистра
+            # Проверяем точное совпадение без учета регистра
             exact_match_found = False
             user_info = None
             
+            if self.debug:
+                print(f"🔍 [DEBUG] Ищем точное совпадение для '{nick}'")
+                print(f"🔍 [DEBUG] Найдено пользователей в initialMatchList: {len(initial_match)}")
+            
             for user in initial_match:
                 user_nick = user.get("userNickData", {}).get("nick", "")
-                # Сравниваем без учета регистра
+                if self.debug:
+                    print(f"🔍 [DEBUG] Сравниваем: '{user_nick}' vs '{nick}' (lower: '{user_nick.lower()}' vs '{nick.lower()}')")
+                
                 if user_nick.lower() == nick.lower():
                     exact_match_found = True
                     user_info = {
@@ -158,11 +185,15 @@ Content-Disposition: form-data; name="ajax"
                         "last_online": user.get("lastOnline", "неизвестно"),
                         "is_male": user.get("isMale", True),
                         "user_pic": user.get("userPic", ""),
-                        "actual_nick": user_nick  # Сохраняем реальный ник
+                        "actual_nick": user_nick
                     }
+                    if self.debug:
+                        print(f"✅ [DEBUG] Найдено совпадение! Ник: {user_nick}")
                     break
             
-            # Если точное совпадение найдено - ник занят
+            if self.debug:
+                print(f"📊 [DEBUG] Итог: exact_match_found = {exact_match_found}")
+            
             is_taken = exact_match_found
             
             self.checked += 1
@@ -173,9 +204,17 @@ Content-Disposition: form-data; name="ajax"
                 "nick": nick,
                 "available": not is_taken,
                 "taken": is_taken,
-                "user_info": user_info
+                "user_info": user_info,
+                "raw_response": result if self.debug else None
             }
+            
+        except requests.exceptions.RequestException as e:
+            if self.debug:
+                print(f"❌ [DEBUG] Ошибка запроса: {e}")
+            return {"nick": nick, "available": False, "error": str(e)}
         except Exception as e:
+            if self.debug:
+                print(f"❌ [DEBUG] Неизвестная ошибка: {e}")
             return {"nick": nick, "available": False, "error": str(e)}
 
 # ==================== ГЕНЕРАТОР ====================
@@ -275,11 +314,9 @@ class NickGenerator:
         return list(set([base] + words))
     
     def cases(self, word: str) -> List[str]:
-        """Возвращает разные варианты написания"""
-        # Проверяем только строчный вариант, так как регистр не важен
         return [word.lower()]
     
-    def search(self, base: str, lang: str = "both", delay: float = 0.3) -> List[str]:
+    def search(self, base: str, lang: str = "both", delay: float = 0.5) -> List[str]:
         print(f"🔍 Поиск: '{base}'")
         words = self.get_words(base, lang)
         random.shuffle(words)
@@ -288,11 +325,10 @@ class NickGenerator:
         found = []
         self.taken_with_info = []
         
-        for word in words[:20]:
+        for word in words[:10]:  # Ограничим 10 для отладки
             if not (3 <= len(word) <= 15):
                 continue
             
-            # Проверяем только строчный вариант
             nick = word.lower()
             result = self.checker.check(nick, delay)
             
@@ -315,7 +351,7 @@ class NickGenerator:
                         "gender": "Мужской" if user_info.get("is_male") else "Женский"
                     })
                 else:
-                    print(f"❌ {nick} — ЗАНЯТ")
+                    print(f"❌ {nick} — ЗАНЯТ (информация отсутствует)")
         
         print(f"🎯 Найдено свободных: {len(found)}")
         if self.taken_with_info:
@@ -330,14 +366,13 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.2                        ║
+║     🚀 GALAXY NICK CHECKER v2.3 - РЕЖИМ ОТЛАДКИ       ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
-║     Регистр не имеет значения                          ║
+║     ВЫВОДИТСЯ ПОЛНЫЙ ОТВЕТ СЕРВЕРА                     ║
 ╚══════════════════════════════════════════════════════════╝
     """)
 
 def main():
-    # ===== АВТОМАТИЧЕСКОЕ СОЗДАНИЕ .env =====
     if not ensure_env_file():
         return
     
@@ -349,9 +384,6 @@ def main():
     
     if not user_id or not password:
         print("❌ Ошибка! В .env не хватает данных.")
-        print("   Проверьте, что указаны:")
-        print("   GALAXY_USER_ID=ваш_айди")
-        print("   GALAXY_PASSWORD=ваш_пароль")
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
     
@@ -371,13 +403,13 @@ def main():
         clear()
         banner()
         print("МЕНЮ:")
-        print("  1. Поиск (русский)")
-        print("  2. Поиск (английский)")
-        print("  3. Поиск (оба языка)")
-        print("  4. Поиск по списку")
-        print("  5. Статистика")
-        print("  6. Показать занятые ники с датами")
-        print("  7. Выход")
+        print("  1. Поиск (русский) - с отладкой")
+        print("  2. Поиск (английский) - с отладкой")
+        print("  3. Поиск (оба языка) - с отладкой")
+        print("  4. Статистика")
+        print("  5. Выход")
+        print("="*50)
+        print("⚠️ РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН - будут видны ответы сервера")
         print("="*50)
         
         choice = input("\n👉 Выбор: ").strip()
@@ -385,72 +417,25 @@ def main():
         if choice == "1":
             word = input("Введите слово: ").strip().lower()
             if word:
-                found = generator.search(word, "russian")
-                if found:
-                    with open("nicks/found.txt", "a", encoding="utf-8") as f:
-                        for nick in found:
-                            f.write(f"{nick}\n")
+                generator.search(word, "russian")
         
         elif choice == "2":
             word = input("Введите слово: ").strip().lower()
             if word:
-                found = generator.search(word, "english")
-                if found:
-                    with open("nicks/found.txt", "a", encoding="utf-8") as f:
-                        for nick in found:
-                            f.write(f"{nick}\n")
+                generator.search(word, "english")
         
         elif choice == "3":
             word = input("Введите слово: ").strip().lower()
             if word:
-                found = generator.search(word, "both")
-                if found:
-                    with open("nicks/found.txt", "a", encoding="utf-8") as f:
-                        for nick in found:
-                            f.write(f"{nick}\n")
+                generator.search(word, "both")
         
         elif choice == "4":
-            words = input("Слова через запятую: ").strip()
-            words = [w.strip().lower() for w in words.split(",") if w.strip()]
-            if words:
-                lang = input("Язык (russian/english/both): ").strip().lower()
-                if lang not in ["russian", "english", "both"]:
-                    lang = "both"
-                all_found = []
-                all_taken = []
-                for word in words:
-                    found = generator.search(word, lang)
-                    all_found.extend(found)
-                    all_taken.extend(generator.taken_with_info)
-                    time.sleep(1)
-                if all_found:
-                    with open("nicks/found.txt", "a", encoding="utf-8") as f:
-                        for nick in set(all_found):
-                            f.write(f"{nick}\n")
-                    print(f"✅ Сохранено {len(set(all_found))} свободных ников")
-                if all_taken:
-                    with open("nicks/taken_info.txt", "a", encoding="utf-8") as f:
-                        for item in all_taken:
-                            f.write(f"{item['nick']} | ID: {item['user_id']} | {item['last_online']} | {'Онлайн' if item['is_online'] else 'Офлайн'}\n")
-        
-        elif choice == "5":
             stats = checker
             print(f"\n📊 Статистика:")
             print(f"   Проверено ников: {stats.checked}")
             print(f"   Найдено свободных: {stats.found}")
         
-        elif choice == "6":
-            if generator.taken_with_info:
-                print("\n📋 Занятые ники с информацией:")
-                print("-" * 60)
-                for item in generator.taken_with_info:
-                    status = "🟢 Онлайн" if item["is_online"] else "🔴 Офлайн"
-                    print(f"  {item['nick']} | {item['gender']} | {status} | Последний раз: {item['last_online']}")
-                print("-" * 60)
-            else:
-                print("\n📭 Нет данных о занятых никах. Сначала выполните поиск.")
-        
-        elif choice == "7":
+        elif choice == "5":
             print("👋 До свидания!")
             break
         
