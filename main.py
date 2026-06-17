@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.4 - ИСПРАВЛЕННЫЙ ЗАПРОС
+Galaxy Nick Checker v2.5 - ТОЧНАЯ КОПИЯ РАБОЧЕГО ЗАПРОСА
 Поиск свободных однословных ников на galaxy.mobstudio.ru
-Правильный формат запроса к серверу
+Использует ТОТ ЖЕ формат, что и рабочий запрос
 """
 
 import hashlib
@@ -64,7 +64,7 @@ def ensure_env_file():
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
 
-# ==================== ЧЕКЕР С ПРАВИЛЬНЫМ ЗАПРОСОМ ====================
+# ==================== ЧЕКЕР — ТОЧНАЯ КОПИЯ ====================
 class GalaxyNickChecker:
     def __init__(self, user_id: int, password: str):
         self.user_id = user_id
@@ -72,40 +72,67 @@ class GalaxyNickChecker:
         self.url = "https://galaxy.mobstudio.ru/services/"
         self.headers = {
             "accept": "*/*",
+            "accept-encoding": "gzip, deflate, br, zstd",
             "accept-language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",  # ИЗМЕНЕНО!
+            "content-type": "multipart/form-data; boundary=----WebKitFormBoundary9B72nKAEd6UycZAA",
             "origin": "https://galaxy.mobstudio.ru",
-            "referer": "https://galaxy.mobstudio.ru/web/assets/index.html",
+            "referer": "https://galaxy.mobstudio.ru/web/assets/index.html?20&page_action=search_index&p=25",
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "x-galaxy-client-ver": "9.5",
-            "x-galaxy-platform": "web",
-            "x-requested-with": "XMLHttpRequest"
+            "x-galaxy-kbv": "352",
+            "x-galaxy-lng": "ru",
+            "x-galaxy-platform": "web"
         }
         self.checked = 0
         self.found = 0
         self.debug = True
     
+    def _build_multipart_data(self, nick: str) -> str:
+        """Создает multipart/form-data тело запроса (ТОЧНО КАК В ОРИГИНАЛЕ)"""
+        boundary = "----WebKitFormBoundary9B72nKAEd6UycZAA"
+        
+        parts = [
+            f'--{boundary}',
+            'Content-Disposition: form-data; name="a"',
+            '',
+            'search_ajax',
+            f'--{boundary}',
+            'Content-Disposition: form-data; name="type"',
+            '',
+            '1',
+            f'--{boundary}',
+            'Content-Disposition: form-data; name="search_value"',
+            '',
+            nick,
+            f'--{boundary}',
+            'Content-Disposition: form-data; name="ajax"',
+            '',
+            '1',
+            f'--{boundary}--',
+            ''
+        ]
+        
+        return '\r\n'.join(parts)
+    
     def check(self, nick: str, delay: float = 0.5) -> Dict:
         time.sleep(delay)
         rand = random.random()
         
-        # ПРАВИЛЬНЫЙ URL с параметрами
+        # URL с параметрами (точно как в оригинале)
         url = f"{self.url}?&userID={self.user_id}&password={self.password_hash}&query_rand={rand}"
         
-        # ПРАВИЛЬНЫЕ ДАННЫЕ (form-urlencoded, НЕ multipart)
-        data = {
-            "a": "search_ajax",
-            "type": "1",
-            "search_value": nick,
-            "ajax": "1"
-        }
+        # Тело запроса (multipart/form-data)
+        data = self._build_multipart_data(nick)
         
         if self.debug:
-            print(f"\n📤 [DEBUG] Запрос к: {url[:80]}...")
-            print(f"📤 [DEBUG] Данные: {data}")
+            print(f"\n📤 [DEBUG] Запрос к: {url[:100]}...")
+            print(f"📤 [DEBUG] Тело (первые 200 символов): {data[:200].replace(chr(13), ' ')}...")
         
         try:
-            resp = requests.post(url, headers=self.headers, data=data, timeout=10)
+            resp = requests.post(url, headers=self.headers, data=data.encode('utf-8'), timeout=10)
             resp.raise_for_status()
             
             if self.debug:
@@ -124,7 +151,7 @@ class GalaxyNickChecker:
                 print(f"📥 [DEBUG] Ключи в ответе: {list(result.keys())}")
                 print(f"📥 [DEBUG] Полный ответ (сокращенно): {json.dumps(result, ensure_ascii=False)[:500]}...")
             
-            # Проверяем, есть ли ошибка
+            # Проверяем ошибку
             if result.get("success") == False:
                 errors = result.get("errors", [])
                 error_msg = errors[0].get("message", "Неизвестная ошибка") if errors else "Ошибка сервера"
@@ -132,7 +159,13 @@ class GalaxyNickChecker:
                     print(f"❌ [DEBUG] Ошибка сервера: {error_msg}")
                 return {"nick": nick, "available": False, "error": error_msg}
             
-            search_result = result.get("searchResult", {})
+            # Если нет searchResult — возможно, ошибка
+            search_result = result.get("searchResult")
+            if search_result is None:
+                if self.debug:
+                    print(f"❌ [DEBUG] Нет searchResult в ответе")
+                return {"nick": nick, "available": False, "error": "Нет searchResult"}
+            
             initial_match = search_result.get("initialMatchList", [])
             
             # Проверяем точное совпадение без учета регистра
@@ -175,8 +208,7 @@ class GalaxyNickChecker:
                 "nick": nick,
                 "available": not is_taken,
                 "taken": is_taken,
-                "user_info": user_info,
-                "raw_response": result if self.debug else None
+                "user_info": user_info
             }
             
         except requests.exceptions.RequestException as e:
@@ -335,9 +367,9 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.4 - ИСПРАВЛЕННЫЙ         ║
+║     🚀 GALAXY NICK CHECKER v2.5 - ТОЧНАЯ КОПИЯ        ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
-║     ПРАВИЛЬНЫЙ ФОРМАТ ЗАПРОСА                          ║
+║     ИСПОЛЬЗУЕТ РАБОЧИЙ ЗАПРОС                          ║
 ╚══════════════════════════════════════════════════════════╝
     """)
 
