@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.5 - ТОЧНАЯ КОПИЯ РАБОЧЕГО ЗАПРОСА
+Galaxy Nick Checker v2.6 - ИСПРАВЛЕННЫЙ
 Поиск свободных однословных ников на galaxy.mobstudio.ru
-Использует ТОТ ЖЕ формат, что и рабочий запрос
+ТОЛЬКО ПОЛЯ В ТЕЛЕ: a, type, search_value, ajax
 """
 
 import hashlib
@@ -64,7 +64,7 @@ def ensure_env_file():
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
 
-# ==================== ЧЕКЕР — ТОЧНАЯ КОПИЯ ====================
+# ==================== ЧЕКЕР ====================
 class GalaxyNickChecker:
     def __init__(self, user_id: int, password: str):
         self.user_id = user_id
@@ -74,13 +74,13 @@ class GalaxyNickChecker:
             "accept": "*/*",
             "accept-encoding": "gzip, deflate, br, zstd",
             "accept-language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-            "content-type": "multipart/form-data; boundary=----WebKitFormBoundary9B72nKAEd6UycZAA",
+            "content-type": "multipart/form-data; boundary=----WebKitFormBoundaryAqx8bYPaXF3nNmhf",
             "origin": "https://galaxy.mobstudio.ru",
             "referer": "https://galaxy.mobstudio.ru/web/assets/index.html?20&page_action=search_index&p=25",
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
-            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
             "x-galaxy-client-ver": "9.5",
             "x-galaxy-kbv": "352",
             "x-galaxy-lng": "ru",
@@ -91,8 +91,8 @@ class GalaxyNickChecker:
         self.debug = True
     
     def _build_multipart_data(self, nick: str) -> str:
-        """Создает multipart/form-data тело запроса (ТОЧНО КАК В ОРИГИНАЛЕ)"""
-        boundary = "----WebKitFormBoundary9B72nKAEd6UycZAA"
+        """Создает multipart/form-data тело запроса (ТОЛЬКО ПОЛЯ ИЗ РАБОЧЕГО ЗАПРОСА)"""
+        boundary = "----WebKitFormBoundaryAqx8bYPaXF3nNmhf"
         
         parts = [
             f'--{boundary}',
@@ -121,15 +121,16 @@ class GalaxyNickChecker:
         time.sleep(delay)
         rand = random.random()
         
-        # URL с параметрами (точно как в оригинале)
+        # URL с параметрами (userID, password, query_rand)
         url = f"{self.url}?&userID={self.user_id}&password={self.password_hash}&query_rand={rand}"
         
-        # Тело запроса (multipart/form-data)
+        # Тело запроса (только a, type, search_value, ajax)
         data = self._build_multipart_data(nick)
         
         if self.debug:
             print(f"\n📤 [DEBUG] Запрос к: {url[:100]}...")
-            print(f"📤 [DEBUG] Тело (первые 200 символов): {data[:200].replace(chr(13), ' ')}...")
+            print(f"📤 [DEBUG] Тело (первые 300 символов):")
+            print(data[:300].replace(chr(13), ' '))
         
         try:
             resp = requests.post(url, headers=self.headers, data=data.encode('utf-8'), timeout=10)
@@ -147,10 +148,6 @@ class GalaxyNickChecker:
                     print(f"❌ [DEBUG] Текст ответа: {resp.text[:500]}")
                 return {"nick": nick, "available": False, "error": "Невалидный JSON"}
             
-            if self.debug:
-                print(f"📥 [DEBUG] Ключи в ответе: {list(result.keys())}")
-                print(f"📥 [DEBUG] Полный ответ (сокращенно): {json.dumps(result, ensure_ascii=False)[:500]}...")
-            
             # Проверяем ошибку
             if result.get("success") == False:
                 errors = result.get("errors", [])
@@ -159,27 +156,28 @@ class GalaxyNickChecker:
                     print(f"❌ [DEBUG] Ошибка сервера: {error_msg}")
                 return {"nick": nick, "available": False, "error": error_msg}
             
-            # Если нет searchResult — возможно, ошибка
+            # Проверяем наличие searchResult
             search_result = result.get("searchResult")
             if search_result is None:
                 if self.debug:
                     print(f"❌ [DEBUG] Нет searchResult в ответе")
+                    print(f"📥 [DEBUG] Полный ответ: {json.dumps(result, ensure_ascii=False)[:500]}")
                 return {"nick": nick, "available": False, "error": "Нет searchResult"}
             
             initial_match = search_result.get("initialMatchList", [])
             
-            # Проверяем точное совпадение без учета регистра
+            # Ищем точное совпадение без учета регистра
             exact_match_found = False
             user_info = None
             
             if self.debug:
                 print(f"🔍 [DEBUG] Ищем точное совпадение для '{nick}'")
-                print(f"🔍 [DEBUG] Найдено пользователей в initialMatchList: {len(initial_match)}")
+                print(f"🔍 [DEBUG] Найдено пользователей: {len(initial_match)}")
             
             for user in initial_match:
                 user_nick = user.get("userNickData", {}).get("nick", "")
                 if self.debug:
-                    print(f"🔍 [DEBUG] Сравниваем: '{user_nick}' vs '{nick}' (lower: '{user_nick.lower()}' vs '{nick.lower()}')")
+                    print(f"🔍 [DEBUG] Сравниваем: '{user_nick}' vs '{nick}'")
                 
                 if user_nick.lower() == nick.lower():
                     exact_match_found = True
@@ -367,9 +365,9 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.5 - ТОЧНАЯ КОПИЯ        ║
+║     🚀 GALAXY NICK CHECKER v2.6 - ИСПРАВЛЕННЫЙ        ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
-║     ИСПОЛЬЗУЕТ РАБОЧИЙ ЗАПРОС                          ║
+║     ТОЛЬКО НУЖНЫЕ ПОЛЯ В ТЕЛЕ ЗАПРОСА                  ║
 ╚══════════════════════════════════════════════════════════╝
     """)
 
