@@ -3,6 +3,7 @@
 Galaxy Nick Checker v2.1
 Поиск свободных однословных ников на galaxy.mobstudio.ru
 С отображением даты последнего онлайна
+Работает как скрипт и как EXE
 """
 
 import hashlib
@@ -12,7 +13,37 @@ import time
 import os
 import sys
 from typing import Dict, List
+from pathlib import Path
 from dotenv import load_dotenv
+
+# ==================== ПОИСК .ENV ====================
+def get_env_path():
+    """Возвращает путь к .env файлу (рядом с EXE или в папке скрипта)"""
+    if getattr(sys, 'frozen', False):
+        # Запущено как EXE
+        base_path = Path(sys.executable).parent
+    else:
+        # Запущено как скрипт
+        base_path = Path(__file__).parent
+    
+    return base_path / '.env'
+
+def create_env_if_not_exists():
+    """Создает .env файл если его нет"""
+    env_path = get_env_path()
+    if not env_path.exists():
+        print("⚙️ Файл .env не найден. Создаю новый...")
+        with open(env_path, 'w', encoding='utf-8') as f:
+            f.write("# Galaxy Nick Checker - настройки\n")
+            f.write("# Получите свой userID через F12 -> Network на сайте galaxy.mobstudio.ru\n")
+            f.write("GALAXY_USER_ID=\n")
+            f.write("GALAXY_PASSWORD=\n")
+        print(f"✅ Создан файл .env в: {env_path}")
+        print("📝 Откройте его и впишите свои данные:")
+        print("   GALAXY_USER_ID=ваш_айди")
+        print("   GALAXY_PASSWORD=ваш_пароль")
+        return False
+    return True
 
 # ==================== ЧЕКЕР ====================
 class GalaxyNickChecker:
@@ -256,23 +287,37 @@ def banner():
     """)
 
 def main():
-    load_dotenv()
+    # Проверяем наличие .env
+    env_path = get_env_path()
+    
+    if not env_path.exists():
+        print("❌ Файл .env не найден!")
+        print(f"   Ожидается в: {env_path}")
+        print("\n📝 Создайте файл .env с вашими данными:")
+        print("   GALAXY_USER_ID=ваш_айди")
+        print("   GALAXY_PASSWORD=ваш_пароль")
+        print("\n💡 Получите свой userID через F12 → Network на сайте galaxy.mobstudio.ru")
+        input("\nНажмите Enter для выхода...")
+        sys.exit(1)
+    
+    load_dotenv(env_path)
     
     user_id = os.getenv("GALAXY_USER_ID")
     password = os.getenv("GALAXY_PASSWORD")
     
     if not user_id or not password:
-        print("❌ Ошибка! Создайте файл .env с данными:")
-        print("""
-GALAXY_USER_ID=ваш_айди
-GALAXY_PASSWORD=ваш_пароль
-        """)
+        print("❌ Ошибка! В .env не хватает данных.")
+        print("   Проверьте, что указаны:")
+        print("   GALAXY_USER_ID=ваш_айди")
+        print("   GALAXY_PASSWORD=ваш_пароль")
+        input("\nНажмите Enter для выхода...")
         sys.exit(1)
     
     try:
         user_id = int(user_id)
     except:
         print("❌ Ошибка! ID должен быть числом")
+        input("\nНажмите Enter для выхода...")
         sys.exit(1)
     
     os.makedirs("nicks", exist_ok=True)
