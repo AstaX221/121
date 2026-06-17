@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.6 - ИСПРАВЛЕННЫЙ
+Galaxy Nick Checker v2.7 - РАБОЧАЯ ВЕРСИЯ
 Поиск свободных однословных ников на galaxy.mobstudio.ru
-ТОЛЬКО ПОЛЯ В ТЕЛЕ: a, type, search_value, ajax
+ТОЧНАЯ КОПИЯ РАБОЧЕГО ЗАПРОСА
 """
 
 import hashlib
@@ -64,7 +64,7 @@ def ensure_env_file():
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
 
-# ==================== ЧЕКЕР ====================
+# ==================== ЧЕКЕР — ТОЧНАЯ КОПИЯ ====================
 class GalaxyNickChecker:
     def __init__(self, user_id: int, password: str):
         self.user_id = user_id
@@ -90,10 +90,11 @@ class GalaxyNickChecker:
         self.found = 0
         self.debug = True
     
-    def _build_multipart_data(self, nick: str) -> str:
-        """Создает multipart/form-data тело запроса (ТОЛЬКО ПОЛЯ ИЗ РАБОЧЕГО ЗАПРОСА)"""
+    def _build_multipart_data(self, nick: str) -> bytes:
+        """Создает multipart/form-data тело запроса (ТОЧНО КАК В БРАУЗЕРЕ)"""
         boundary = "----WebKitFormBoundaryAqx8bYPaXF3nNmhf"
         
+        # Формируем части без лишних пробелов и с правильными \r\n
         parts = [
             f'--{boundary}',
             'Content-Disposition: form-data; name="a"',
@@ -112,33 +113,31 @@ class GalaxyNickChecker:
             '',
             '1',
             f'--{boundary}--',
-            ''
         ]
         
-        return '\r\n'.join(parts)
+        # Соединяем с \r\n и преобразуем в байты
+        body = '\r\n'.join(parts) + '\r\n'
+        return body.encode('utf-8')
     
     def check(self, nick: str, delay: float = 0.5) -> Dict:
         time.sleep(delay)
         rand = random.random()
         
-        # URL с параметрами (userID, password, query_rand)
+        # URL с параметрами
         url = f"{self.url}?&userID={self.user_id}&password={self.password_hash}&query_rand={rand}"
         
-        # Тело запроса (только a, type, search_value, ajax)
+        # Тело запроса
         data = self._build_multipart_data(nick)
         
         if self.debug:
             print(f"\n📤 [DEBUG] Запрос к: {url[:100]}...")
-            print(f"📤 [DEBUG] Тело (первые 300 символов):")
-            print(data[:300].replace(chr(13), ' '))
         
         try:
-            resp = requests.post(url, headers=self.headers, data=data.encode('utf-8'), timeout=10)
+            resp = requests.post(url, headers=self.headers, data=data, timeout=10)
             resp.raise_for_status()
             
             if self.debug:
                 print(f"📥 [DEBUG] Статус ответа: {resp.status_code}")
-                print(f"📥 [DEBUG] Content-Type: {resp.headers.get('content-type', 'неизвестно')}")
             
             try:
                 result = resp.json()
@@ -149,7 +148,7 @@ class GalaxyNickChecker:
                 return {"nick": nick, "available": False, "error": "Невалидный JSON"}
             
             # Проверяем ошибку
-            if result.get("success") == False:
+            if "success" in result and result.get("success") == False:
                 errors = result.get("errors", [])
                 error_msg = errors[0].get("message", "Неизвестная ошибка") if errors else "Ошибка сервера"
                 if self.debug:
@@ -161,7 +160,6 @@ class GalaxyNickChecker:
             if search_result is None:
                 if self.debug:
                     print(f"❌ [DEBUG] Нет searchResult в ответе")
-                    print(f"📥 [DEBUG] Полный ответ: {json.dumps(result, ensure_ascii=False)[:500]}")
                 return {"nick": nick, "available": False, "error": "Нет searchResult"}
             
             initial_match = search_result.get("initialMatchList", [])
@@ -176,8 +174,6 @@ class GalaxyNickChecker:
             
             for user in initial_match:
                 user_nick = user.get("userNickData", {}).get("nick", "")
-                if self.debug:
-                    print(f"🔍 [DEBUG] Сравниваем: '{user_nick}' vs '{nick}'")
                 
                 if user_nick.lower() == nick.lower():
                     exact_match_found = True
@@ -365,9 +361,8 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.6 - ИСПРАВЛЕННЫЙ        ║
+║     🚀 GALAXY NICK CHECKER v2.7 - РАБОЧАЯ ВЕРСИЯ      ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
-║     ТОЛЬКО НУЖНЫЕ ПОЛЯ В ТЕЛЕ ЗАПРОСА                  ║
 ╚══════════════════════════════════════════════════════════╝
     """)
 
