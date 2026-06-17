@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Galaxy Nick Checker v2.3 - С ОТЛАДКОЙ
+Galaxy Nick Checker v2.4 - ИСПРАВЛЕННЫЙ ЗАПРОС
 Поиск свободных однословных ников на galaxy.mobstudio.ru
-ВЫВОДИТ СЫРЫЕ ОТВЕТЫ СЕРВЕРА ДЛЯ ДИАГНОСТИКИ
+Правильный формат запроса к серверу
 """
 
 import hashlib
@@ -64,7 +64,7 @@ def ensure_env_file():
         input("\nНажмите Enter для выхода...")
         sys.exit(1)
 
-# ==================== ЧЕКЕР С ОТЛАДКОЙ ====================
+# ==================== ЧЕКЕР С ПРАВИЛЬНЫМ ЗАПРОСОМ ====================
 class GalaxyNickChecker:
     def __init__(self, user_id: int, password: str):
         self.user_id = user_id
@@ -72,68 +72,46 @@ class GalaxyNickChecker:
         self.url = "https://galaxy.mobstudio.ru/services/"
         self.headers = {
             "accept": "*/*",
-            "content-type": "multipart/form-data; boundary=----WebKitFormBoundary9B72nKAEd6UycZAA",
+            "accept-language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "content-type": "application/x-www-form-urlencoded; charset=UTF-8",  # ИЗМЕНЕНО!
             "origin": "https://galaxy.mobstudio.ru",
             "referer": "https://galaxy.mobstudio.ru/web/assets/index.html",
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "x-galaxy-client-ver": "9.5",
-            "x-galaxy-platform": "web"
+            "x-galaxy-platform": "web",
+            "x-requested-with": "XMLHttpRequest"
         }
         self.checked = 0
         self.found = 0
-        self.debug = True  # Включаем отладку
+        self.debug = True
     
-    def _build_form_data(self, nick: str, rand: float) -> str:
-        return f"""------WebKitFormBoundary9B72nKAEd6UycZAA
-Content-Disposition: form-data; name="userID"
-
-{self.user_id}
-------WebKitFormBoundary9B72nKAEd6UycZAA
-Content-Disposition: form-data; name="password"
-
-{self.password_hash}
-------WebKitFormBoundary9B72nKAEd6UycZAA
-Content-Disposition: form-data; name="query_rand"
-
-{rand}
-------WebKitFormBoundary9B72nKAEd6UycZAA
-Content-Disposition: form-data; name="a"
-
-search_ajax
-------WebKitFormBoundary9B72nKAEd6UycZAA
-Content-Disposition: form-data; name="type"
-
-1
-------WebKitFormBoundary9B72nKAEd6UycZAA
-Content-Disposition: form-data; name="search_value"
-
-{nick}
-------WebKitFormBoundary9B72nKAEd6UycZAA
-Content-Disposition: form-data; name="ajax"
-
-1
-------WebKitFormBoundary9B72nKAEd6UycZAA--
-"""
-    
-    def check(self, nick: str, delay: float = 0.3) -> Dict:
+    def check(self, nick: str, delay: float = 0.5) -> Dict:
         time.sleep(delay)
         rand = random.random()
+        
+        # ПРАВИЛЬНЫЙ URL с параметрами
         url = f"{self.url}?&userID={self.user_id}&password={self.password_hash}&query_rand={rand}"
         
-        # ОТЛАДКА: показываем URL
+        # ПРАВИЛЬНЫЕ ДАННЫЕ (form-urlencoded, НЕ multipart)
+        data = {
+            "a": "search_ajax",
+            "type": "1",
+            "search_value": nick,
+            "ajax": "1"
+        }
+        
         if self.debug:
             print(f"\n📤 [DEBUG] Запрос к: {url[:80]}...")
+            print(f"📤 [DEBUG] Данные: {data}")
         
         try:
-            resp = requests.post(url, headers=self.headers, data=self._build_form_data(nick, rand), timeout=10)
+            resp = requests.post(url, headers=self.headers, data=data, timeout=10)
             resp.raise_for_status()
             
-            # ОТЛАДКА: показываем статус ответа
             if self.debug:
                 print(f"📥 [DEBUG] Статус ответа: {resp.status_code}")
                 print(f"📥 [DEBUG] Content-Type: {resp.headers.get('content-type', 'неизвестно')}")
             
-            # Пытаемся получить JSON
             try:
                 result = resp.json()
             except json.JSONDecodeError as e:
@@ -142,26 +120,19 @@ Content-Disposition: form-data; name="ajax"
                     print(f"❌ [DEBUG] Текст ответа: {resp.text[:500]}")
                 return {"nick": nick, "available": False, "error": "Невалидный JSON"}
             
-            # ОТЛАДКА: показываем структуру ответа
             if self.debug:
                 print(f"📥 [DEBUG] Ключи в ответе: {list(result.keys())}")
-                if "searchResult" in result:
-                    sr = result["searchResult"]
-                    print(f"📥 [DEBUG] searchResult содержит: {list(sr.keys())}")
-                    print(f"📥 [DEBUG] hasFullMatch: {sr.get('hasFullMatch', 'НЕТ')}")
-                    print(f"📥 [DEBUG] initialMatchCount: {sr.get('initialMatchCount', 0)}")
-                    
-                    # Показываем первый найденный ник, если есть
-                    if sr.get("initialMatchList"):
-                        first_user = sr["initialMatchList"][0]
-                        first_nick = first_user.get("userNickData", {}).get("nick", "НЕТ НИКА")
-                        print(f"📥 [DEBUG] Первый найденный ник: {first_nick}")
-                
-                print(f"📥 [DEBUG] Полный ответ (сокращенно): {json.dumps(result, ensure_ascii=False)[:300]}...")
+                print(f"📥 [DEBUG] Полный ответ (сокращенно): {json.dumps(result, ensure_ascii=False)[:500]}...")
+            
+            # Проверяем, есть ли ошибка
+            if result.get("success") == False:
+                errors = result.get("errors", [])
+                error_msg = errors[0].get("message", "Неизвестная ошибка") if errors else "Ошибка сервера"
+                if self.debug:
+                    print(f"❌ [DEBUG] Ошибка сервера: {error_msg}")
+                return {"nick": nick, "available": False, "error": error_msg}
             
             search_result = result.get("searchResult", {})
-            has_match = search_result.get("hasFullMatch", False)
-            
             initial_match = search_result.get("initialMatchList", [])
             
             # Проверяем точное совпадение без учета регистра
@@ -313,9 +284,6 @@ class NickGenerator:
             words.extend(self.ENGLISH.get(base, []))
         return list(set([base] + words))
     
-    def cases(self, word: str) -> List[str]:
-        return [word.lower()]
-    
     def search(self, base: str, lang: str = "both", delay: float = 0.5) -> List[str]:
         print(f"🔍 Поиск: '{base}'")
         words = self.get_words(base, lang)
@@ -325,7 +293,7 @@ class NickGenerator:
         found = []
         self.taken_with_info = []
         
-        for word in words[:10]:  # Ограничим 10 для отладки
+        for word in words[:15]:
             if not (3 <= len(word) <= 15):
                 continue
             
@@ -351,7 +319,8 @@ class NickGenerator:
                         "gender": "Мужской" if user_info.get("is_male") else "Женский"
                     })
                 else:
-                    print(f"❌ {nick} — ЗАНЯТ (информация отсутствует)")
+                    error = result.get("error", "неизвестная ошибка")
+                    print(f"❌ {nick} — ОШИБКА: {error}")
         
         print(f"🎯 Найдено свободных: {len(found)}")
         if self.taken_with_info:
@@ -366,9 +335,9 @@ def clear():
 def banner():
     print("""
 ╔══════════════════════════════════════════════════════════╗
-║     🚀 GALAXY NICK CHECKER v2.3 - РЕЖИМ ОТЛАДКИ       ║
+║     🚀 GALAXY NICK CHECKER v2.4 - ИСПРАВЛЕННЫЙ         ║
 ║     Поиск свободных ников + дата последнего онлайна    ║
-║     ВЫВОДИТСЯ ПОЛНЫЙ ОТВЕТ СЕРВЕРА                     ║
+║     ПРАВИЛЬНЫЙ ФОРМАТ ЗАПРОСА                          ║
 ╚══════════════════════════════════════════════════════════╝
     """)
 
@@ -403,13 +372,11 @@ def main():
         clear()
         banner()
         print("МЕНЮ:")
-        print("  1. Поиск (русский) - с отладкой")
-        print("  2. Поиск (английский) - с отладкой")
-        print("  3. Поиск (оба языка) - с отладкой")
+        print("  1. Поиск (русский)")
+        print("  2. Поиск (английский)")
+        print("  3. Поиск (оба языка)")
         print("  4. Статистика")
         print("  5. Выход")
-        print("="*50)
-        print("⚠️ РЕЖИМ ОТЛАДКИ ВКЛЮЧЕН - будут видны ответы сервера")
         print("="*50)
         
         choice = input("\n👉 Выбор: ").strip()
@@ -417,17 +384,29 @@ def main():
         if choice == "1":
             word = input("Введите слово: ").strip().lower()
             if word:
-                generator.search(word, "russian")
+                found = generator.search(word, "russian")
+                if found:
+                    with open("nicks/found.txt", "a", encoding="utf-8") as f:
+                        for nick in found:
+                            f.write(f"{nick}\n")
         
         elif choice == "2":
             word = input("Введите слово: ").strip().lower()
             if word:
-                generator.search(word, "english")
+                found = generator.search(word, "english")
+                if found:
+                    with open("nicks/found.txt", "a", encoding="utf-8") as f:
+                        for nick in found:
+                            f.write(f"{nick}\n")
         
         elif choice == "3":
             word = input("Введите слово: ").strip().lower()
             if word:
-                generator.search(word, "both")
+                found = generator.search(word, "both")
+                if found:
+                    with open("nicks/found.txt", "a", encoding="utf-8") as f:
+                        for nick in found:
+                            f.write(f"{nick}\n")
         
         elif choice == "4":
             stats = checker
